@@ -1,0 +1,150 @@
+########################################################################
+# Library to ease printing out TAP-compatible messages from CFEngine
+#
+# TAP specification at
+# http://testanything.org/tap-specification.html
+########################################################################
+
+bundle agent tap_plan(n)
+# Print a test plan
+{
+  reports:
+      "$(const.n)1..$(n)" ;
+}
+
+
+bundle agent tap_result(n,ok_class,nok_class,message)
+# Generic bundle to produce a TAP report based on classes
+# parameters:
+# - n: test number
+# - ok_class: class to signal that the test has passed
+# - nok_class: class to signal that the test has failed
+# - message: test description
+{
+  classes:
+      "sensible"
+        or => {
+                "$(ok_class).!$(nok_class)",
+                "!$(ok_class).$(nok_class)"
+        },
+        comment => "The test result is sensible (test either OK or not)" ;
+
+      "dubious"
+        or => {
+                "$(ok_class).$(nok_class)",
+                "!$(ok_class).!$(nok_class)",
+        },
+        comment => "The test result is dubious (both OK and NOK, or neither)" ;
+
+  reports:
+    sensible::
+      "$(const.n)ok $(n) $(message)"     ifvarclass => "$(ok_class)" ;
+      "$(const.n)not ok $(n) $(message)" ifvarclass => "$(nok_class)" ;
+
+    dubious::
+      "$(const.n)# $(message)$(const.n)# Test $(n) is both OK and NOK -- DUBIOUS"
+        ifvarclass => "$(ok_class)" ;
+      "$(const.n)# $(message)$(const.n)# Test $(n) is neither OK nor NOK -- DUBIOUS"
+        ifvarclass => "!$(ok_class)" ;
+      "$(const.n)not ok $(n) $(message)" ;
+}
+
+
+bundle agent tap_ok(n,message)
+# Succeed this test unconditionally
+# Useful when the condition is computed outside this library
+{
+  methods:
+      "ok" usebundle => tap_result("$(n)","any","__tap_ok_false_class__","$(message)") ;
+}
+
+
+bundle agent tap_not_ok(n,message)
+# Fail this test unconditionally
+# Useful when the condition is computed outside this library
+{
+  methods:
+      "not_ok" usebundle => tap_result("$(n)","__tap_not_ok_false_class__","any","$(message)") ;
+}
+
+
+bundle agent tap_ok_if(n,class,message)
+# Return OK if $(class) is defined, NOT OK otherwise
+# Different from the generic tap_result in that it requires only a class
+# to tell if the test is passed, but not a class to signal that it has
+# not -- it assumes that if the requested class is not defined, then the
+# test is failed. Less robust than tap_result, but more practical sometimes
+{
+  methods:
+      "ok_if"
+        usebundle => tap_ok("$(n)","$(message)"),
+        ifvarclass => "$(class)" ;
+
+      "not_ok"
+        usebundle => tap_not_ok("$(n)","$(message)"),
+        ifvarclass => "!$(class)" ;
+}
+
+bundle agent tap_skip(n,message)
+# Skip this test
+{
+  methods:
+      "skip" usebundle => tap_result("$(n)","any","__tap_skip_false_class__","# SKIP $(message)") ;
+}
+
+
+bundle agent tap_todo(n,message)
+# Mark this test as to do
+{
+  methods:
+      "todo" usebundle => tap_result("$(n)","__tap_todo_false_class__","any","# TODO $(message)") ;
+}
+
+
+bundle agent test_tap
+# Test the library itself
+{
+  methods:
+      "1" usebundle => tap_result("1","any","false","This test should be OK") ;
+      "2" usebundle => tap_result("2","false","any","This test should fail") ;
+      "3" usebundle => tap_result("3","any","any","This test should be dubious") ;
+      "4" usebundle => tap_result("4","false","false","This test should be dubious") ;
+      "5" usebundle => tap_todo("5","this should be a TODO") ;
+      "6" usebundle => tap_skip("6","this should be a SKIP") ;
+      "7" usebundle => tap_ok("7","This test should be OK") ;
+      "8" usebundle => tap_not_ok("8","This test should fail") ;
+      "9" usebundle => tap_ok_if("9","any","This test should be OK") ;
+      "10" usebundle => tap_ok_if("10","false","This test should fail") ;
+      "plan" usebundle => tap_plan("10") ;
+}
+
+
+########################################################################
+# Other useful bodies and bundles
+
+body classes diff_classes_generic(x)
+# This is a mix of body classes u_kept_successful_command from update.cf
+# and body classes classes_generic from lib/3.6/common.cf
+# Diffing two files is quite common to test if two different versions
+# of the same policy produced the same result. This version of classes
+# generic will help.
+#
+# From man diff:
+# Exit status is 0 if inputs are the  same,  1  if
+# different, 2 if trouble.
+#
+# @brief Define `x` prefixed/suffixed with promise outcome, Set command to "kept" instead of "repaired" if it returns 0
+# @param x The unique part of the classes to be defined
+{
+        promise_repaired => { "promise_repaired_$(x)", "$(x)_repaired", "$(x)_ok", "$(x)_reached" };
+        repair_failed => { "repair_failed_$(x)", "$(x)_failed", "$(x)_not_ok", "$(x)_error", "$(x)_not_kept", "$(x)_not_repaired",
+                           "$(x)_reached" };
+        repair_denied => { "repair_denied_$(x)", "$(x)_denied", "$(x)_not_ok", "$(x)_error", "$(x)_not_kept", "$(x)_not_repaired",
+                           "$(x)_reached" };
+        repair_timeout => { "repair_timeout_$(x)", "$(x)_timeout", "$(x)_not_ok", "$(x)_error","$(x)_not_kept", "$(x)_not_repaired
+", "$(x)_reached" };
+        promise_kept => { "promise_kept_$(x)", "$(x)_kept", "$(x)_ok", "$(x)_not_repaired", "$(x)_reached" };
+
+        kept_returncodes => { "0" };
+        failed_returncodes => { "1","2" };
+}
