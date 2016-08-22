@@ -1,0 +1,17 @@
+bundle agent check_process_running(process)
+{
+  vars:
+      "prefix" string => canonify("process $(process) running") ;
+
+  processes:
+      "$(process)"
+        process_count => running ;
+}
+
+
+body process_count running
+{
+        match_range => irange(1,inf) ;
+        in_range_define => { "$(check_process_running.prefix)_ok" } ;
+        out_of_range_define => { "$(check_process_running.prefix)_not_kept" } ;
+}
